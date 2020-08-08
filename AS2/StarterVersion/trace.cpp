@@ -21,27 +21,35 @@ double det(const SlVector3 &a, const SlVector3 &b, const SlVector3 &c) {
 inline double sqr(double x) {return x*x;} 
 
 bool Triangle::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const {
+    SlVector3 v1 = a - b;
+    SlVector3 v2 = a - c;
+    SlVector3 v3 = a - r.e;
+    SlVector3 n = cross(b-a, c-a);
+    normalize(n);
+    double t = det(v1, v2, v3)/det(v1, v2, r.d);
 
-   //Step 1 Ray-trianglr test
-   SlVector3 v1 = a - b;
-   SlVector3 v2 = a - c;
-   SlVector3 v3 = a - r.e;
-   SlVector3 n = cross(v1, v2);
-   normalize(n);
+    if (t < t0 || t > t1)
+    {
+        return false;
+    }
 
-   double t = det(v1, v2, v3) / det(v1, v2, r.d);
-   if(t < t0 || t > t1) return false;
+    double check1 = det(v3, v2, r.d)/det(v1, v2, r.d);
 
-   double beta = det(v3, v2, r.d) / det(v1, v2, r.d);
-   if (beta < 0 || beta > 1) return false;
+    if (check1 < 0 || check1 > 1)
+    {
+        return false;
+    }
+    double check2 = det(v1, v3, r.d)/det(v1, v2, r.d);
+    if (check2 < 0.0 || check2 > 1.0 - check1)
+    {
+        return false;
+    }
 
-   double gamma = det(v1, v2, r.d) / det(v1, v2, r.d);
-   if (gamma < 0.0 || gamma > 1.0-beta) return false;
+    hr.t = t;
+    hr.p = r.e + t * r.d;
+    hr.n = n;
 
-   hr.t = t;
-   hr.p = r.e + t * r.d;
-   hr.n = n;
-   return true;
+    return true;
 }
 
 bool TrianglePatch::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const {
@@ -56,8 +64,6 @@ bool TrianglePatch::intersect(const Ray &r, double t0, double t1, HitRecord &hr)
 
 
 bool Sphere::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const {
-
-    // Step 1 Sphere-triangle test
     double proj = dot(r.d, r.e-c);
     double d2 = sqrMag(r.d);
 
@@ -70,13 +76,11 @@ bool Sphere::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const 
     double t = root1;
     if (root1 < 0 || (root2 > 0 && root2 < root1)) t = root2;
     if (t < t0 || t > t1) return false;
-  
+
     hr.t = t;
     hr.p = r.e + t * r.d;
     return true;
 }
-
-
 
 
 Tracer::Tracer(const std::string &fname) {
@@ -252,15 +256,13 @@ SlVector3 Tracer::trace(const Ray &r, double t0, double t1) const {
     bool hit = false;
 
     // Step 1 See what a ray hits
-    for (unsigned int i = 0 ; i < surfaces.size(); i++)
-
+    for (unsigned int i = 0 ; i < surfaces.size(); ++i)
     {
-        const std::pair<Surface *, Fill> &s  = surfaces[i];
-        if (s.first -> intersect(r, t0, t1, hr))
+        if (surfaces.at(i).first -> intersect(r, t0, t1, hr))
         {
-            t1 = hr.t;
-            hr.f = s.second;
             hit = true;
+            t1 = hr.t;
+            hr.f = surfaces.at(i).second;
         }
     }
     
