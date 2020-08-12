@@ -14,13 +14,15 @@
 // return the determinant of the matrix with columns a, b, c.
 double det(const SlVector3 &a, const SlVector3 &b, const SlVector3 &c) {
     return a[0] * (b[1] * c[2] - c[1] * b[2]) +
-        b[0] * (c[1] * a[2] - a[1] * c[2]) +
-            c[0] * (a[1] * b[2] - b[1] * a[2]);
+           b[0] * (c[1] * a[2] - a[1] * c[2]) +
+           c[0] * (a[1] * b[2] - b[1] * a[2]);
 }
 
-inline double sqr(double x) {return x*x;} 
+inline double sqr(double x) {return x*x;}
 
 bool Triangle::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const {
+
+    //Step 1 Ray-trianglr test
     SlVector3 v1 = a - b;
     SlVector3 v2 = a - c;
     SlVector3 v3 = a - r.e;
@@ -45,9 +47,15 @@ bool Triangle::intersect(const Ray &r, double t0, double t1, HitRecord &hr) cons
         return false;
     }
 
+    hr.beta= check1;
+    hr.gamma = check2;
+    hr.alpha = 1 - check1 - check2;
     hr.t = t;
     hr.p = r.e + t * r.d;
     hr.n = n;
+    hr.v = r.e;
+    hr.raydepth = r.depth;
+    normalize(hr.n);
 
     return true;
 }
@@ -64,6 +72,9 @@ bool TrianglePatch::intersect(const Ray &r, double t0, double t1, HitRecord &hr)
 
 
 bool Sphere::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const {
+
+    // Step 1 Sphere-triangle test
+
     double proj = dot(r.d, r.e-c);
     double d2 = sqrMag(r.d);
 
@@ -79,8 +90,14 @@ bool Sphere::intersect(const Ray &r, double t0, double t1, HitRecord &hr) const 
 
     hr.t = t;
     hr.p = r.e + t * r.d;
+    hr.n = hr.p-c;
+    hr.v = r.e;
+    hr.raydepth = r.depth;
+    normalize(hr.n);
     return true;
 }
+
+
 
 
 Tracer::Tracer(const std::string &fname) {
@@ -149,8 +166,8 @@ Tracer::Tracer(const std::string &fname) {
                 bool makeTriangles = false;
                 if (vertices.size() == 3) {
                     if (patch) {
-                        surfaces.push_back(std::pair<Surface *, Fill>(new TrianglePatch(vertices[0], vertices[1], vertices[2], 
-                        normals [0], normals [1], normals [2]), fill));
+                        surfaces.push_back(std::pair<Surface *, Fill>(new TrianglePatch(vertices[0], vertices[1], vertices[2],
+                                                                                        normals [0], normals [1], normals [2]), fill));
                     } else {
                         surfaces.push_back(std::pair<Surface *, Fill>(new Triangle(vertices[0], vertices[1], vertices[2]), fill));
                     }
@@ -162,10 +179,10 @@ Tracer::Tracer(const std::string &fname) {
                     if (dot(n0,n1) > 0 && dot(n0,n2) > 0 && dot(n0,n3) > 0) {
                         makeTriangles = true;
                         if (patch) {
-                            surfaces.push_back(std::pair<Surface *, Fill>(new TrianglePatch(vertices[0], vertices[1], vertices[2], 
-                            normals[0], normals[1], normals[2]), fill));
-                            surfaces.push_back(std::pair<Surface *, Fill>(new TrianglePatch(vertices[0], vertices[2], vertices[3], 
-                            normals[0], normals[2], normals[3]), fill));
+                            surfaces.push_back(std::pair<Surface *, Fill>(new TrianglePatch(vertices[0], vertices[1], vertices[2],
+                                                                                            normals[0], normals[1], normals[2]), fill));
+                            surfaces.push_back(std::pair<Surface *, Fill>(new TrianglePatch(vertices[0], vertices[2], vertices[3],
+                                                                                            normals[0], normals[2], normals[3]), fill));
                         } else {
                             surfaces.push_back(std::pair<Surface *, Fill>(new Triangle(vertices[0], vertices[1], vertices[2]), fill));
                             surfaces.push_back(std::pair<Surface *, Fill>(new Triangle(vertices[0], vertices[2], vertices[3]), fill));
@@ -186,7 +203,7 @@ Tracer::Tracer(const std::string &fname) {
                 surfaces.push_back(std::pair<Surface *, Fill>(new Sphere(c,r), fill));
                 break;
             }
-	  
+
             case 'f' : {
                 std::stringstream ss(line);
                 ss>>ch>>fill.color[0]>>fill.color[1]>>fill.color[2]>>fill.kd>>fill.ks>>fill.shine>>fill.t>>fill.ior;
@@ -206,7 +223,7 @@ Tracer::Tracer(const std::string &fname) {
             }
 
             default:
-            break;
+                break;
         }
     }
     if (!coloredlights) for (unsigned int i=0; i<lights.size(); i++) lights[i].c = 1.0/sqrt(lights.size());
@@ -223,7 +240,7 @@ Tracer::~Tracer() {
 
 
 SlVector3 Tracer::shade(const HitRecord &hr) const {
-    if (color) return hr.f.color;
+    //if (color) return hr.f.color;
 
     SlVector3 color(0.0);
     HitRecord dummy;
@@ -233,11 +250,32 @@ SlVector3 Tracer::shade(const HitRecord &hr) const {
         bool shadow = false;
 
         // Step 3 Check for shadows here
+        SlVector3 rayE(hr.p);
+        SlVector3 rayL(light.p - hr.p);
+        normalize(rayL);
+        Ray ray(rayE,rayL);
 
+        for (unsigned int i = 0; i < surfaces.size(); ++i)
+        {
+            const std::pair<Surface *,Fill> s = surfaces[i];
+            if(s.first->intersect(ray, hither, MAX, dummy))
+            {
+                shadow=true;
+                break;
+            }
+        }
         if (!shadow) {
-            
+
             // Step 2 do shading here
-            
+            SlVector3 rayV = hr.p-hr.v; //Viewer
+            SlVector3 rayR= -rayL+2.0f*hr.n*dot(hr.n,rayL);//Relection
+            normalize(rayV);
+            normalize(rayR);
+            //SlVector3 h = v + r;
+            //normalize(h);
+            color += 0.05f * hr.f.color * light.c;
+            color += hr.f.kd * fmax(dot(rayL,hr.n),0) * hr.f.color * light.c;
+            color += hr.f.ks * pow(fmax(dot(rayR, rayV), 0), hr.f.shine) * hr.f.color * light.c;
         }
     }
 
@@ -252,20 +290,19 @@ SlVector3 Tracer::shade(const HitRecord &hr) const {
 SlVector3 Tracer::trace(const Ray &r, double t0, double t1) const {
     HitRecord hr;
     SlVector3 color(bcolor);
-  
+
     bool hit = false;
 
     // Step 1 See what a ray hits
-    for (unsigned int i = 0 ; i < surfaces.size(); ++i)
-    {
-        if (surfaces.at(i).first -> intersect(r, t0, t1, hr))
-        {
-            hit = true;
+    for (unsigned int i=0; i<surfaces.size(); i++) {
+        const std::pair<Surface *, Fill> &s  = surfaces[i];
+        if (s.first->intersect(r, t0, t1, hr)) {
             t1 = hr.t;
-            hr.f = surfaces.at(i).second;
+            hr.f = s.second;
+            hit = true;
         }
     }
-    
+
     if (hit) color = shade(hr);
     return color;
 }
@@ -301,7 +338,7 @@ void Tracer::traceImage() {
                 double x = l + (r-l)*(i+rx)/res[0];
                 double y = b + (t-b)*(j+ry)/res[1];
                 SlVector3 dir = -d * w + x * u + y * v;
-	
+
                 Ray r(eye, dir);
                 normalize(r.d);
 
@@ -343,19 +380,19 @@ int main(int argc, char *argv[]) {
     while ((c = getopt(argc, argv, "a:s:d:c")) != -1) {
         switch(c) {
             case 'a':
-            aperture = atof(optarg);
-            break;
+                aperture = atof(optarg);
+                break;
             case 's':
-            samples = atoi(optarg);
-            break;
+                samples = atoi(optarg);
+                break;
             case 'c':
-            color = true;
-            break;
+                color = true;
+                break;
             case 'd':
-            maxraydepth = atoi(optarg);
-            break;
+                maxraydepth = atoi(optarg);
+                break;
             default:
-            abort();
+                abort();
         }
     }
 
@@ -363,7 +400,7 @@ int main(int argc, char *argv[]) {
         std::cout<<"usage: trace [opts] input.nff output.ppm"<<std::endl;
         for (unsigned int i=0; i<argc; i++) std::cout<<argv[i]<<std::endl;
         exit(0);
-    }	
+    }
 
     Tracer tracer(argv[optind++]);
     tracer.aperture = aperture;
