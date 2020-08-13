@@ -240,11 +240,9 @@ Tracer::~Tracer() {
 
 
 SlVector3 Tracer::shade(const HitRecord &hr) const {
-    //if (color) return hr.f.color;
-
     SlVector3 color(0.0);
     HitRecord dummy;
-
+    SlVector3 rd = (hr.p- hr.v)/hr.t;
     for (unsigned int i=0; i<lights.size(); i++) {
         const Light &light = lights[i];
         bool shadow = false;
@@ -264,26 +262,34 @@ SlVector3 Tracer::shade(const HitRecord &hr) const {
                 break;
             }
         }
-        if (!shadow) {
 
+        if (!shadow) {
             // Step 2 do shading here
             SlVector3 rayV = hr.p-hr.v; //Viewer
             SlVector3 rayR= -rayL+2.0f*hr.n*dot(hr.n,rayL);//Relection
             normalize(rayV);
             normalize(rayR);
-            //SlVector3 h = v + r;
-            //normalize(h);
             color += 0.05f * hr.f.color * light.c;
             color += hr.f.kd * fmax(dot(rayL,hr.n),0) * hr.f.color * light.c;
             color += hr.f.ks * pow(fmax(dot(rayR, rayV), 0), hr.f.shine) * hr.f.color * light.c;
         }
     }
 
-
     // Step 4 Add code for computing reflection color here
+    if (hr.raydepth < maxraydepth){
+        SlVector3 reflection = rd - 2 * dot(rd, hr.n) * hr.n;
+        Ray reflectionRay(hr.p, reflection);
+        color += hr.f.ks * trace(reflectionRay, hither, MAX);
+    }
 
-    // Step 5 Add code for computing refraction color here
-
+//    // Step 5 Add code for computing refraction color here
+    if (hr.f.t > 0 && hr.f.ior > 0) {
+        SlVector3 refraction = (hr.f.ior * (rd - hr.n * dot(rd, hr.n))) / hr.f.ior
+                - hr.n * sqrt(1 - (((hr.f.ior * hr.f.ior) *
+                (1 - dot(rd, hr.n) * dot(rd, hr.n))) / (hr.f.ior * hr.f.ior)));
+        Ray refractionRay(hr.p, refraction);
+        color += hr.f.t * trace(refractionRay, hither, MAX);
+    }
     return color;
 }
 
@@ -397,7 +403,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (argc-optind != 2) {
-        std::cout<<"usage: trace [opts] input.nff output.ppm"<<std::endl;
+        std::cout<<"usage: trace [opts] input.nff output.ppm" << std::endl;
         for (unsigned int i=0; i<argc; i++) std::cout<<argv[i]<<std::endl;
         exit(0);
     }
